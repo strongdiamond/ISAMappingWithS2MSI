@@ -22,3 +22,22 @@ img_size=512
 num_classes=1
 imgs_gts_path='/samples'
 batch_size = 3
+def train_deeplabv3plus_keras_xception_cbam():
+    train_same_prefix_fnames,valid_same_prefix_fnames=get_shuffle_img_gt_train_val_fns(imgs_gts_path,val_samples_num=450)
+    train_gen = SparseSamplePatchBatch(train_same_prefix_fnames,imgs_gts_path,batch_size, patch_size)
+    val_gen = SparseSamplePatchBatch(valid_same_prefix_fnames,imgs_gts_path,batch_size, patch_size)
+    train_steps = train_gen.__len__()
+    K.clear_session()
+    weights_dir = '/demo/Infor/deeplab_cbam_ISA_weights/weights'
+    checkpoint_dir='/demo/Infor/deeplab_cbam_ISA_weights/ckpt'
+    csv_dir='/demo/Infor/deeplab_cbam_ISA_weights/csv'
+    if not os.path.exists(weights_dir):
+        os.makedirs(weights_dir)
+    if not os.path.exists(checkpoint_dir):
+        os.makedirs(checkpoint_dir)
+    if not os.path.exists(csv_dir):
+        os.makedirs(csv_dir)
+    
+    best_weights_filepath=os.path.join(weights_dir,'isa_v1.h5') 
+ if __name__=='__main__':
+    train_deeplabv3plus_keras_xception_cbam()
