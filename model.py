@@ -9,7 +9,7 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.python.keras import layers
 from keras.models import Model,load_model
-from keras.callbacks import  ModelCheckpoint,EarlyStopping,CSVLogger,TensorBoard,ReduceLROnPlateau
+from keras.callbacks import  ModelCheckpoint,EarlyStopping,CSVLogger,ReduceLROnPlateau
 from keras import backend as K
 from keras_xception_cbam280 import DeepLabV3Plus
 from category_focal_loss_for_ISA import BinaryFocalLoss
