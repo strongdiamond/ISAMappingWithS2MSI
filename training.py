@@ -1,62 +1,97 @@
 # -*- coding: utf-8 -*-
-
 import os
-import random
-import numpy as np
-import cv2
-import tifffile as tiff
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.python.keras import layers
-from keras.models import Model,load_model
-from keras.callbacks import  ModelCheckpoint,EarlyStopping,CSVLogger,ReduceLROnPlateau
+import sys
+from keras.utils.vis_utils import plot_model
 from keras import backend as K
-from keras_xception_cbam280 import DeepLabV3Plus
-from category_focal_loss_for_ISA import BinaryFocalLoss
-from ISASamplesProvider280_v3 import SparseSamplePatchBatch,ShuffleCallback,get_shuffle_img_gt_train_val_fns
-###*******************************************************************************#####
-patch_size=(512,512)
-patch_h, patch_w, nchannels= 512, 512,12
-img_size=512
-num_classes=1
-imgs_gts_path='/samples'
-batch_size = 3
-def train_deeplabv3plus_keras_xception_cbam():
-    train_same_prefix_fnames,valid_same_prefix_fnames=get_shuffle_img_gt_train_val_fns(imgs_gts_path,val_samples_num=450)
-    train_gen = SparseSamplePatchBatch(train_same_prefix_fnames,imgs_gts_path,batch_size, patch_size)
-    val_gen = SparseSamplePatchBatch(valid_same_prefix_fnames,imgs_gts_path,batch_size, patch_size)
-    train_steps = train_gen.__len__()
-    K.clear_session()
-    weights_dir = '/demo/Infor/deeplab_cbam_ISA_weights/weights'
-    checkpoint_dir='/demo/Infor/deeplab_cbam_ISA_weights/ckpt'
-    csv_dir='/demo/Infor/deeplab_cbam_ISA_weights/csv'
-    if not os.path.exists(weights_dir):
-        os.makedirs(weights_dir)
-    if not os.path.exists(checkpoint_dir):
-        os.makedirs(checkpoint_dir)
-    if not os.path.exists(csv_dir):
-        os.makedirs(csv_dir)
-    
-    best_weights_filepath=os.path.join(weights_dir,'isa_v1.h5') 
-    model=DeepLabV3Plus(patch_h, patch_w,nchannels, num_classes)
-    if os.path.exists(best_weights_filepath):
-        model.load_weights(best_weights_filepath)
-        print('load weights==>'+best_weights_filepath)
-        best_weights_filepath=os.path.join(weights_dir,'isa_v2.h5')
-    else:
-        pass    
-    
-    checkpoint_cb = ModelCheckpoint(best_weights_filepath,monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
-    earlystopping_cb=EarlyStopping(monitor='val_loss',patience=10,verbose=1,mode='auto',restore_best_weights=True)
-    csv_logger = CSVLogger(csv_dir+'/isa_v1.csv', append=True, separator=',')
-    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1,min_lr=0.001)
-               
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
-                    loss=BinaryFocalLoss(alpha=0.25,gamma=2.0),metrics=['accuracy'])
+from keras.layers import Conv2D,BatchNormalization,Activation,UpSampling2D
+from keras.layers import Concatenate,GlobalAveragePooling2D,Reshape
+from keras.models import Model,load_model
+
+sys.path.append('.')
+
+from xception_ljt.xception2_8 import Xception
+from attention_module import attach_attention_module,se_block
+#***********************************************************************
+def ASPP(tensor):
+    '''atrous spatial pyramid pooling'''
+    dims = K.int_shape(tensor)
+    print(dims)
+    y_pool=GlobalAveragePooling2D() (tensor)   
+    y_pool=Reshape((1,1,dims[3]))(y_pool)
+    print(K.int_shape(y_pool))
+    y_pool = Conv2D(filters=256, kernel_size=1, padding='same',
+                    kernel_initializer='he_normal', name='pool_1x1conv2d', use_bias=False)(y_pool)
+    y_pool = BatchNormalization(name=f'bn_1')(y_pool)
+    y_pool = Activation('relu', name=f'relu_1')(y_pool)
+
+    y_pool = UpSampling2D(size=(dims[1],dims[2]),interpolation='bilinear')(y_pool)
+
+    y_1 = Conv2D(filters=256, kernel_size=1, dilation_rate=1, padding='same',
+                 kernel_initializer='he_normal', name='ASPP_conv2d_d1', use_bias=False)(tensor)
+    y_1 = BatchNormalization(name=f'bn_2')(y_1)
+    y_1 = Activation('relu', name=f'relu_2')(y_1)
+
+    y_6 = Conv2D(filters=256, kernel_size=3, dilation_rate=6, padding='same',
+                 kernel_initializer='he_normal', name='ASPP_conv2d_d6', use_bias=False)(tensor)
+    y_6 = BatchNormalization(name=f'bn_3')(y_6)
+    y_6 = Activation('relu', name=f'relu_3')(y_6)
+
+    y_12 = Conv2D(filters=256, kernel_size=3, dilation_rate=12, padding='same',
+                  kernel_initializer='he_normal', name='ASPP_conv2d_d12', use_bias=False)(tensor)
+    y_12 = BatchNormalization(name=f'bn_4')(y_12)
+    y_12 = Activation('relu', name=f'relu_4')(y_12)
+
+    y_18 = Conv2D(filters=256, kernel_size=3, dilation_rate=18, padding='same',
+                  kernel_initializer='he_normal', name='ASPP_conv2d_d18', use_bias=False)(tensor)
+    y_18 = BatchNormalization(name=f'bn_5')(y_18)
+    y_18 = Activation('relu', name=f'relu_5')(y_18)
    
-    callbacks =[checkpoint_cb,reduce_lr,earlystopping_cb,csv_logger]
-    epochs =50
+    y = Concatenate(name='ASPP_concat')([y_pool, y_1, y_6, y_12, y_18])
+    y = Conv2D(filters=256, kernel_size=1, dilation_rate=1, padding='same',
+               kernel_initializer='he_normal', name='ASPP_conv2d_final', use_bias=False)(y)
+    y = BatchNormalization(name=f'bn_final')(y)
+    y = Activation('relu', name=f'relu_final')(y)
+    return y
+def DeepLabV3Plus(img_height=512, img_width=512,nchannels=12, nclasses=1):
+    base_model = Xception(include_top=True,input_shape=(img_height,img_width,nchannels),weights=None)
+    print(type(base_model.layers)) 
+    print(len(base_model.layers))
+    #*************************************************************************
+    highFeatures=base_model.get_layer('block13_conv2_bn').output
+    x_a=attach_attention_module(highFeatures,'cbam_block1')
+    x_a = ASPP(x_a)
+    x_a = UpSampling2D(size=(4,4),interpolation='bilinear')(x_a)
+    x_a=se_block(x_a,'se_block_a')
+    ##********************************************************
+    lowerFeatures=base_model.get_layer('block3_conv2_bn').output
+    x_b=attach_attention_module(lowerFeatures,'cbam_block2')
+    x_b = Conv2D(filters=48, kernel_size=1, padding='same',
+                 kernel_initializer='he_normal', name='low_level_projection', use_bias=False)(x_b)
+    x_b = BatchNormalization(name=f'bn_low_level_projection')(x_b)
+    x_b = Activation('relu', name='low_level_activation')(x_b)
+    x_b=se_block(x_b,'se_block_b')
+    #*************************************************************************
+    x = Concatenate(name='decoder_concat')([x_a, x_b])
+    x = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu',
+               kernel_initializer='he_normal', name='decoder_conv2d_1', use_bias=False)(x)
+    x = BatchNormalization(name=f'bn_decoder_1')(x)
+    x = Activation('relu', name='activation_decoder_1')(x)
+    x = Conv2D(filters=256, kernel_size=3, padding='same', activation='relu',
+               kernel_initializer='he_normal', name='decoder_conv2d_2', use_bias=False)(x)
+    x = BatchNormalization(name=f'bn_decoder_2')(x)
+    x = Activation('relu', name='activation_decoder_2')(x)
     
-    model.fit(train_gen, validation_data=val_gen,epochs=epochs,initial_epoch=0,steps_per_epoch=train_steps,callbacks=callbacks)
- if __name__=='__main__':
-    train_deeplabv3plus_keras_xception_cbam()
+    x = UpSampling2D(size=(4,4),interpolation='bilinear')(x)
+    
+    x = Conv2D(nclasses, (1, 1), name='output_layer',padding="same")(x)
+    
+    model = Model(inputs=base_model.input, outputs=x, name='DeepLabV3_Plus')
+    print(f'*** Output_Shape => {model.output_shape} ***')
+    return model
+#########################################################################
+if __name__=='__main__':
+    patch_h, patch_w, nchannels= 512, 512,12
+    num_classes=1
+    model = DeepLabV3Plus(patch_h, patch_w,nchannels, num_classes)
+    plot_model(model,to_file='./graph/cbam.png',show_shapes=True)
+    pass
