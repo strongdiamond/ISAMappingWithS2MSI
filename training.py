@@ -39,5 +39,27 @@ def train_deeplabv3plus_keras_xception_cbam():
         os.makedirs(csv_dir)
     
     best_weights_filepath=os.path.join(weights_dir,'isa_v1.h5') 
+     model=DeepLabV3Plus(patch_h, patch_w,nchannels, num_classes)
+    if os.path.exists(best_weights_filepath):
+        model.load_weights(best_weights_filepath)
+        print('load weights==>'+best_weights_filepath)
+        best_weights_filepath=os.path.join(weights_dir,'isa_v2.h5')
+    else:
+        pass    
+    
+    checkpoint_cb = ModelCheckpoint(best_weights_filepath,monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
+    earlystopping_cb=EarlyStopping(monitor='val_loss',patience=10,verbose=1,mode='auto',restore_best_weights=True)
+    csv_logger = CSVLogger(csv_dir+'/isa_v1.csv', append=True, separator=',')
+    
+    reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1,min_lr=0.001)
+               
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
+                    loss=BinaryFocalLoss(alpha=0.25,gamma=2.0),metrics=['accuracy'])
+    
+    epochs =50
+    
+    callbacks =[checkpoint_cb,reduce_lr,earlystopping_cb,csv_logger]
+    
+    model.fit(train_gen, validation_data=val_gen,epochs=epochs,initial_epoch=0,steps_per_epoch=train_steps,callbacks=callbacks)
  if __name__=='__main__':
     train_deeplabv3plus_keras_xception_cbam()
