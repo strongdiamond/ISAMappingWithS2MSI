@@ -39,7 +39,7 @@ def train_deeplabv3plus_keras_xception_cbam():
         os.makedirs(csv_dir)
     
     best_weights_filepath=os.path.join(weights_dir,'isa_v1.h5') 
-     model=DeepLabV3Plus(patch_h, patch_w,nchannels, num_classes)
+    model=DeepLabV3Plus(patch_h, patch_w,nchannels, num_classes)
     if os.path.exists(best_weights_filepath):
         model.load_weights(best_weights_filepath)
         print('load weights==>'+best_weights_filepath)
