@@ -14,9 +14,8 @@ from keras import backend as K
 from keras_xception_cbam280 import DeepLabV3Plus
 from category_focal_loss_for_ISA import BinaryFocalLoss
 from ISASamplesProvider280_v3 import SparseSamplePatchBatch,ShuffleCallback,get_shuffle_img_gt_train_val_fns
-
+###*******************************************************************************#####
 patch_size=(512,512)
-
 patch_h, patch_w, nchannels= 512, 512,12
 img_size=512
 num_classes=1
@@ -50,15 +49,13 @@ def train_deeplabv3plus_keras_xception_cbam():
     checkpoint_cb = ModelCheckpoint(best_weights_filepath,monitor='val_loss', verbose=1, save_best_only=True, save_weights_only=True)
     earlystopping_cb=EarlyStopping(monitor='val_loss',patience=10,verbose=1,mode='auto',restore_best_weights=True)
     csv_logger = CSVLogger(csv_dir+'/isa_v1.csv', append=True, separator=',')
-    
     reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=10, verbose=1,min_lr=0.001)
                
     model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=1e-4), 
                     loss=BinaryFocalLoss(alpha=0.25,gamma=2.0),metrics=['accuracy'])
-    
-    epochs =50
-    
+   
     callbacks =[checkpoint_cb,reduce_lr,earlystopping_cb,csv_logger]
+    epochs =50
     
     model.fit(train_gen, validation_data=val_gen,epochs=epochs,initial_epoch=0,steps_per_epoch=train_steps,callbacks=callbacks)
  if __name__=='__main__':
